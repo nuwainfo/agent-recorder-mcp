@@ -70,6 +70,12 @@ class CleanupPolicy(ApiEnum):
 class DeliveryKind(ApiEnum):
     FFL = 1
     LOCAL = 2
+    GOOGLE_DRIVE = 3
+
+
+class UploadStatus(ApiEnum):
+    PENDING = 1
+    CONFIRMED = 2
 
 
 class RecordingRequest:
@@ -129,6 +135,7 @@ class Recording:
         delivery: DeliveryKind | None,
         url: str | None,
         error: str | None,
+        uploadStatus: UploadStatus | None = None,
     ):
         self.recordingId = recordingId
         self.state = state
@@ -144,8 +151,10 @@ class Recording:
         self.delivery = delivery
         self.url = url
         self.error = error
+        self.uploadStatus = uploadStatus
         self.handle = None
         self.shareSession = None
+        self.completionHook = None
         self.watchThread = None
 
     @staticmethod
@@ -156,6 +165,7 @@ class Recording:
     def fromDisk(cls, data: dict) -> "Recording":
         cleanup = data["cleanup"]
         delivery = data["delivery"]
+        uploadStatus = data.get("upload_status")
         return cls(
             recordingId=data["recording_id"],
             state=RecordingState.parse(data["state"]),
@@ -171,6 +181,7 @@ class Recording:
             delivery=None if delivery is None else DeliveryKind.parse(delivery),
             url=data["url"],
             error=data["error"],
+            uploadStatus=None if uploadStatus is None else UploadStatus.parse(uploadStatus),
         )
 
     def startedAtText(self) -> str:
@@ -204,6 +215,7 @@ class Recording:
             "delivery": None if self.delivery is None else self.delivery.name.lower(),
             "url": self.url,
             "error": self.error,
+            "upload_status": None if self.uploadStatus is None else self.uploadStatus.name.lower(),
         }
 
     def toPayload(self, now: datetime, alreadyRecording: bool = False) -> dict:
@@ -218,6 +230,15 @@ class Recording:
         }
         if self.url:
             payload["url"] = self.url
+
+        if self.delivery is not None:
+            payload["delivery"] = self.delivery.name.lower()
+
+        if self.uploadStatus is not None:
+            payload["uploadStatus"] = self.uploadStatus.name.lower()
+
+        if self.delivery == DeliveryKind.GOOGLE_DRIVE and self.uploadStatus == UploadStatus.PENDING:
+            payload["localPath"] = str(self.outputPath)
 
         if self.cleanup is not None:
             payload["cleanup"] = self.cleanup.name.lower()

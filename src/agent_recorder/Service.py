@@ -16,7 +16,7 @@ from datetime import datetime
 
 from agent_recorder.Capture import FfmpegFrameProbe, FfmpegLocator, X11GrabCapture
 from agent_recorder.Cleanup import AfterDownloadCleanup
-from agent_recorder.Delivery import DeliveryFactory, FFLDelivery, LocalDelivery
+from agent_recorder.Delivery import DeliveryFactory, FFLDelivery, GoogleDriveDelivery, LocalDelivery
 from agent_recorder.Display import AgentDisplayDiscovery, LinuxProcessTable, X11SocketCatalog
 from agent_recorder.Files import RecordingFile
 from agent_recorder.Models import (
@@ -28,6 +28,7 @@ from agent_recorder.Models import (
     RecordingNotFoundError,
     RecordingRequest,
     RecordingState,
+    UploadStatus,
 )
 from agent_recorder.Store import RecordingStore
 
@@ -165,6 +166,7 @@ class RecordingService:
         if RecordingFile.isPlayable(recording.outputPath):
             recording.state = RecordingState.READY
             recording.url = None
+            recording.uploadStatus = None
             recording.error = (
                 "The share session ended before cleanup. Call finishRecording to share the file again."
             )
@@ -231,8 +233,8 @@ class RecordingService:
 
     @staticmethod
     def _validateFinish(delivery: DeliveryKind, cleanup: CleanupPolicy) -> None:
-        if cleanup == CleanupPolicy.AFTER_UPLOAD:
-            raise DeliveryError("after_upload is not available in this version.")
+        if cleanup == CleanupPolicy.AFTER_UPLOAD and delivery != DeliveryKind.GOOGLE_DRIVE:
+            raise DeliveryError("after_upload cleanup requires google_drive delivery.")
 
         if cleanup == CleanupPolicy.AFTER_DOWNLOAD and delivery != DeliveryKind.FFL:
             raise DeliveryError("after_download cleanup requires ffl delivery.")
@@ -339,6 +341,17 @@ class RecordingService:
 
         if recording.ffmpegPid and self._inspector.isAlive(recording.ffmpegPid):
             self._stopPid(recording.ffmpegPid, recording.recordingId)
+
+    def _closeHook(self, recording: Recording) -> None:
+        hook = recording.completionHook
+        recording.completionHook = None
+        if hook is None:
+            return
+
+        try:
+            hook.close()
+        except Exception as error:
+            logger.warning("Could not close the transfer hook for %s: %s", recording.recordingId, error)
 
     def _stopShareQuiet(self, recording: Recording) -> None:
         session = recording.shareSession
@@ -455,9 +468,20 @@ class RecordingService:
             raise
 
         with self._lock:
-            recording.url = result.url
             recording.shareSession = result.session
+            recording.completionHook = result.completionHook
             recording.error = None
+            recording.delivery = delivery
+            recording.cleanup = cleanup
+            if result.awaitsUpload:
+                recording.url = None
+                recording.uploadStatus = UploadStatus.PENDING
+                recording.state = RecordingState.SHARING
+                self._store.save(recording)
+                return recording
+
+            recording.url = result.url
+            recording.uploadStatus = None
             recording.state = RecordingState.SHARED
             if self._active is recording:
                 self._active = None
@@ -465,7 +489,10 @@ class RecordingService:
             self._store.save(recording)
 
         if cleanup == CleanupPolicy.AFTER_DOWNLOAD:
-            self._cleanup.watch(recording, result.session, self._store)
+            if result.completionHook is None:
+                raise DeliveryError("FFL delivery did not provide a completion hook.")
+
+            self._cleanup.watch(recording, result.session, self._store, result.completionHook)
 
         return recording
 
@@ -484,6 +511,7 @@ class RecordingService:
             self._store.save(recording)
 
         self._stopCaptureProcess(recording, handle)
+        self._closeHook(recording)
         self._stopShareQuiet(recording)
         if deletePartial:
             RecordingFile.deleteMedia(recording)
@@ -493,7 +521,49 @@ class RecordingService:
             recording.handle = None
             recording.ffmpegPid = None
             recording.shareSession = None
+            recording.completionHook = None
             self._store.save(recording)
+
+        return recording
+
+    def confirmUpload(self, recordingId: str, url: str) -> Recording:
+        if not isinstance(url, str) or url.strip() == "":
+            raise DeliveryError("confirmUpload requires the uploaded file URL.")
+
+        url = url.strip()
+        with self._lock:
+            recording = self._find(recordingId)
+            self._refuseForeignOwner(recording)
+            if recording.state == RecordingState.CLEANED and recording.url:
+                return recording
+
+            if recording.delivery != DeliveryKind.GOOGLE_DRIVE:
+                raise DeliveryError("confirmUpload is for google_drive delivery.")
+
+            waiting = (
+                recording.state == RecordingState.SHARING
+                and recording.uploadStatus == UploadStatus.PENDING
+            )
+            if not waiting:
+                raise RecorderError(
+                    f"Recording {recording.recordingId} is {recording.state.name.lower()} "
+                    "and is not waiting for an upload URL."
+                )
+
+            recording.url = url
+            recording.uploadStatus = UploadStatus.CONFIRMED
+            deleteFile = recording.cleanup == CleanupPolicy.AFTER_UPLOAD
+            recording.state = RecordingState.CLEANED if deleteFile else RecordingState.SHARED
+            if self._active is recording:
+                self._active = None
+
+            self._store.save(recording)
+
+        if deleteFile:
+            RecordingFile.deleteMedia(recording)
+            RecordingFile.deleteLog(recording)
+            with self._lock:
+                self._store.save(recording)
 
         return recording
 
@@ -509,6 +579,7 @@ class RecordingService:
             self._store.save(recording)
 
         self._stopCaptureProcess(recording, handle)
+        self._closeHook(recording)
         self._stopShareQuiet(recording)
         RecordingFile.deleteMedia(recording)
         RecordingFile.deleteLog(recording)
@@ -539,6 +610,7 @@ def buildDefaultService() -> RecordingService:
         deliveries=DeliveryFactory({
             DeliveryKind.FFL: FFLDelivery(),
             DeliveryKind.LOCAL: LocalDelivery(),
+            DeliveryKind.GOOGLE_DRIVE: GoogleDriveDelivery(),
         }),
         cleanup=AfterDownloadCleanup(),
         store=RecordingStore(config.recordingsDir),

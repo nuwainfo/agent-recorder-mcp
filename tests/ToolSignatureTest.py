@@ -31,6 +31,7 @@ class ToolSignatureTest(unittest.TestCase):
             "recordingStatus",
             "finishRecording",
             "abortRecording",
+            "confirmUpload",
             "cleanupRecording",
         ):
             self.assertTrue(hasattr(MCP, name))
@@ -45,6 +46,11 @@ class ToolSignatureTest(unittest.TestCase):
         self.assertIn("recordingId", params)
         self.assertEqual(params["delivery"].default, "ffl")
         self.assertEqual(params["cleanup"].default, "after_download")
+
+    def testConfirmUploadRequiresAnIdAndUrl(self):
+        params = self._params(MCP.confirmUpload)
+        self.assertIs(params["recordingId"].default, inspect.Parameter.empty)
+        self.assertIs(params["url"].default, inspect.Parameter.empty)
 
     def testCleanupRequiresAnId(self):
         params = self._params(MCP.cleanupRecording)

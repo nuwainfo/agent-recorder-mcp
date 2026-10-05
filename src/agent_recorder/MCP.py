@@ -85,13 +85,16 @@ def finishRecording(
     delivery: str = "ffl",
     cleanup: str = "after_download",
 ) -> dict[str, Any]:
-    """Stop the recording, share it, and return a replay URL.
+    """Stop the recording and hand it to a transfer strategy.
 
-    delivery defaults to ffl, which shares the file through FastFileLink.
-    cleanup defaults to after_download. The local file stays until the recipient
-    finishes downloading, then the share stops and the file is deleted.
-    after_upload is not available in this version. cleanup manual leaves the file
-    on the agent computer.
+    delivery defaults to ffl. cleanup defaults to after_download. The local file
+    stays until FastFileLink reports that the download finished, then the share
+    stops and the file is deleted. delivery local with cleanup manual returns a
+    file URI and leaves the file in place.
+
+    delivery google_drive with cleanup after_upload does not call Google. It
+    returns localPath and uploadStatus pending. Upload that file with the
+    connected Google Drive tool, then call confirmUpload with the Drive link.
 
     Put the returned url in the final answer as the operation replay. If this call
     fails, tell the user that no replay was produced and include the reason.
@@ -112,6 +115,18 @@ def abortRecording(recordingId: str | None = None, deletePartial: bool = True) -
     the task is cancelled or the capture is the wrong display.
     """
     recording = _service().abort(recordingId, deletePartial=deletePartial)
+    return _service().payloadFor(recording)
+
+
+@mcp.tool
+def confirmUpload(recordingId: str, url: str) -> dict[str, Any]:
+    """Store the link from the connected Google Drive tool.
+
+    Call this after finishRecording(delivery="google_drive") once the Drive
+    tool has uploaded localPath. url is that Drive file link. cleanup
+    after_upload then deletes the local recording.
+    """
+    recording = _service().confirmUpload(recordingId, url)
     return _service().payloadFor(recording)
 
 

@@ -6,10 +6,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_recorder.Delivery import FFLDelivery, LocalDelivery
+from agent_recorder.Delivery import FFLDelivery, GoogleDriveDelivery, LocalDelivery
 from agent_recorder.Models import DeliveryError
 
-from Support import sampleRecording
+from Support import FakeCompletionHook, sampleRecording
 
 
 class _Session:
@@ -25,31 +25,45 @@ def _share(path, **kwargs):
 
 class DeliveryTest(unittest.TestCase):
 
-    def testFflShareRequestsHookEventsAndReturnsTheLink(self):
+    def testFflShareUsesOurCompletionHook(self):
         with tempfile.TemporaryDirectory() as directory:
             recording = sampleRecording(Path(directory))
-            result = FFLDelivery(_share).deliver(recording)
+            hook = FakeCompletionHook()
+            result = FFLDelivery(_share, hookFactory=lambda: hook).deliver(recording)
             self.assertEqual(result.url, "https://fastfilelink.example/abc")
             self.assertEqual(result.session.captured["path"], str(recording.outputPath))
             self.assertEqual(result.session.captured["kwargs"]["name"], recording.outputPath.name)
-            self.assertTrue(result.session.captured["kwargs"]["capture_hook_events"])
+            self.assertFalse(result.session.captured["kwargs"]["capture_hook_events"])
+            self.assertEqual(result.session.captured["kwargs"]["hook_url"], hook.url)
+            self.assertIs(result.completionHook, hook)
 
     def testFflShareWithoutALinkFails(self):
         with tempfile.TemporaryDirectory() as directory:
             recording = sampleRecording(Path(directory))
+            hook = FakeCompletionHook()
 
             def share(path, **kwargs):
                 del path, kwargs
                 return _Session("", {})
 
             with self.assertRaises(DeliveryError):
-                FFLDelivery(share).deliver(recording)
+                FFLDelivery(share, hookFactory=lambda: hook).deliver(recording)
+
+            self.assertTrue(hook.closed)
 
     def testLocalDeliveryReturnsAFileUri(self):
         with tempfile.TemporaryDirectory() as directory:
             recording = sampleRecording(Path(directory))
             result = LocalDelivery().deliver(recording)
             self.assertTrue(result.url.startswith("file:"))
+            self.assertIsNone(result.session)
+
+    def testGoogleDriveDeliveryWaitsForTheConnector(self):
+        with tempfile.TemporaryDirectory() as directory:
+            recording = sampleRecording(Path(directory))
+            result = GoogleDriveDelivery().deliver(recording)
+            self.assertIsNone(result.url)
+            self.assertTrue(result.awaitsUpload)
             self.assertIsNone(result.session)
 
 

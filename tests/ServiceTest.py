@@ -17,6 +17,7 @@ from agent_recorder.Models import (
     FfmpegNotFoundError,
     RecorderError,
     RecordingState,
+    UploadStatus,
 )
 from agent_recorder.Service import RecorderConfig, RecordingService
 from agent_recorder.Store import RecordingStore
@@ -102,9 +103,10 @@ class ServiceTest(unittest.TestCase):
             self.assertEqual(finished.cleanup, CleanupPolicy.AFTER_DOWNLOAD)
             self.assertTrue(finished.outputPath.exists())
             self.assertFalse(delivery.session.stopped)
-            delivery.session.emitCompleted()
+            delivery.hook.emit()
             self.assertFalse(finished.outputPath.exists())
             self.assertTrue(delivery.session.stopped)
+            self.assertTrue(delivery.hook.closed)
             self.assertEqual(finished.state, RecordingState.CLEANED)
             started.recording.watchThread.join(2)
             self.assertFalse(started.recording.watchThread.is_alive())
@@ -119,6 +121,27 @@ class ServiceTest(unittest.TestCase):
             self.assertTrue(finished.url.startswith("file:"))
             self.assertEqual(finished.state, RecordingState.SHARED)
 
+    def testGoogleDriveUploadDeletesTheFileAfterConfirmation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service, _store, _delivery, _capture = openService(Path(directory))
+            service.start()
+            pending = service.finish(
+                delivery=DeliveryKind.GOOGLE_DRIVE,
+                cleanup=CleanupPolicy.AFTER_UPLOAD,
+            )
+            self.assertEqual(pending.state, RecordingState.SHARING)
+            self.assertEqual(pending.uploadStatus, UploadStatus.PENDING)
+            self.assertIsNone(pending.url)
+            self.assertTrue(pending.outputPath.exists())
+            again = service.start()
+            self.assertTrue(again.alreadyRecording)
+            confirmed = service.confirmUpload(pending.recordingId, " https://drive.google.com/file/d/abc/view ")
+            self.assertEqual(confirmed.url, "https://drive.google.com/file/d/abc/view")
+            self.assertEqual(confirmed.state, RecordingState.CLEANED)
+            self.assertFalse(confirmed.outputPath.exists())
+            repeated = service.confirmUpload(pending.recordingId, "https://drive.google.com/file/d/abc/view")
+            self.assertEqual(repeated.state, RecordingState.CLEANED)
+
     def testAfterUploadIsRejectedWithoutStopping(self):
         with tempfile.TemporaryDirectory() as directory:
             service, _store, _delivery, capture = openService(Path(directory))
@@ -126,7 +149,7 @@ class ServiceTest(unittest.TestCase):
             with self.assertRaises(DeliveryError) as caught:
                 service.finish(cleanup=CleanupPolicy.AFTER_UPLOAD)
 
-            self.assertIn("after_upload is not available", str(caught.exception))
+            self.assertIn("after_upload cleanup requires google_drive delivery", str(caught.exception))
             self.assertTrue(capture.handle.running)
 
     def testAfterDownloadRequiresFfl(self):

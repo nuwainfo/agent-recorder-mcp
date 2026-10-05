@@ -9,7 +9,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 
 from agent_recorder.Cleanup import AfterDownloadCleanup
-from agent_recorder.Delivery import DeliveryFactory, DeliveryResult, LocalDelivery
+from agent_recorder.Delivery import DeliveryFactory, DeliveryResult, GoogleDriveDelivery, LocalDelivery
 from agent_recorder.Display import FrameView, ProcessSnapshot
 from agent_recorder.Models import (
     CaptureError,
@@ -135,29 +135,42 @@ class FakeShareSession:
     def __init__(self):
         self.link = "https://fastfilelink.example/replay"
         self.stopped = False
-        self._listeners = []
-
-    def on(self, name, listener):
-        self._listeners.append((name, listener))
 
     def stop(self, timeout=5):
         del timeout
         self.stopped = True
 
-    def emitCompleted(self):
-        for name, listener in list(self._listeners):
-            if name == "completed":
-                listener(object())
+
+class FakeCompletionHook:
+    def __init__(self):
+        self.url = "http://127.0.0.1:9/events"
+        self.closed = False
+        self._listeners = []
+
+    def onComplete(self, listener):
+        self._listeners.append(listener)
+
+    def emit(self):
+        for listener in list(self._listeners):
+            listener()
+
+    def close(self):
+        self.closed = True
 
 
 class FakeDelivery:
     def __init__(self):
         self.session = FakeShareSession()
+        self.hook = FakeCompletionHook()
         self.calls = []
 
     def deliver(self, recording):
         self.calls.append(recording.outputPath)
-        return DeliveryResult(url=self.session.link, session=self.session)
+        return DeliveryResult(
+            url=self.session.link,
+            session=self.session,
+            completionHook=self.hook,
+        )
 
 
 class FakeCatalog:
@@ -236,6 +249,7 @@ def openService(root, discovery=None, capture=None, delivery=None, inspector=Non
         deliveries=DeliveryFactory({
             DeliveryKind.FFL: delivery,
             DeliveryKind.LOCAL: LocalDelivery(),
+            DeliveryKind.GOOGLE_DRIVE: GoogleDriveDelivery(),
         }),
         cleanup=AfterDownloadCleanup(),
         store=store,
