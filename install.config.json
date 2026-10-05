@@ -1,0 +1,7 @@
+{
+  "serverName": "agent-recorder",
+  "entrypoint": "agent-recorder-mcp",
+  "distributionName": "agent-recorder-mcp",
+  "binaryEnvVar": "AGENT_RECORDER_BINARY",
+  "envKeys": ["AGENT_RECORDER_DIR", "AGENT_RECORDER_FFMPEG"]
+}

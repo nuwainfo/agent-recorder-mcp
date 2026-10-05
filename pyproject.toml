@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agent-recorder-mcp"
+version = "0.1.0"
+description = "Local MCP server that records an agent computer session and returns a replay link"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+dependencies = [
+  "ffl-python==0.1.4",
+  "fastmcp>=4,<4.0.4",
+  "mcp-install==0.1.0",
+]
+
+[project.scripts]
+agent-recorder-mcp = "agent_recorder.Entrypoint:main"
+install = "mcp_install.Install:main"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["src/agent_recorder", "install.config.json"]
+
+[tool.hatch.build.targets.wheel.sources]
+"src" = ""
+
+[tool.hatch.build.targets.wheel.force-include]
+"install.config.json" = "install.config.json"
+".grok/skills/agent-session-recording/SKILL.md" = "agent_recorder/skills/agent-session-recording/SKILL.md"
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "src/agent_recorder/**/*.py",
+  "install.config.json",
+  ".grok/skills/agent-session-recording/SKILL.md",
+  "README.md",
+  "AGENTS.md",
+  "LICENSE",
+]
