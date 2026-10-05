@@ -11,6 +11,7 @@ import sys
 
 from importlib.metadata import version
 
+from agent_recorder.InstallSource import DirectoryInstallSource
 from agent_recorder.Paths import AppPaths
 from agent_recorder.SkillInstall import SkillInstaller
 
@@ -30,11 +31,15 @@ def _dispatchInstall(command: str) -> None:
     if "--app-config" not in sys.argv:
         sys.argv.extend(["--app-config", str(AppPaths.installConfig())])
 
+    if not os.environ.get("AGENT_RECORDER_BINARY"):
+        spec = DirectoryInstallSource().directorySpec()
+        sys.argv[:] = DirectoryInstallSource.appendSpec(sys.argv, spec)
+
     from mcp_install.Install import main as installMain
 
-    uninstall = command == "uninstall"
+    uninstall = command == "uninstall" or "--uninstall" in sys.argv
     preview = "--print" in sys.argv
-    if uninstall:
+    if command == "uninstall" and "--uninstall" not in sys.argv:
         sys.argv.append("--uninstall")
 
     try:
@@ -47,6 +52,11 @@ def _dispatchInstall(command: str) -> None:
 
     if not preview and not uninstall:
         _installSkillFromArgs()
+
+
+def installCommand() -> None:
+    """Console script used by `uvx --from <checkout> install`."""
+    _dispatchInstall("install")
 
 
 def main() -> None:

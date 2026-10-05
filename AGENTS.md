@@ -23,6 +23,17 @@ Display selection must fail with `No active agent display could be identified.` 
 
 ## Commands
 
+GrokBot installs from a checkout with uvx. The client command stays `uvx`.
+
+```bash
+uvx --from /path/to/agent-recorder-mcp install --target grok-build
+uvx --from /path/to/agent-recorder-mcp install --print --target grok-build
+```
+
+`--print` does not write config and does not copy the skill. The registered server command is `uvx --from <that checkout> agent-recorder-mcp`. A git URL in `--from` is recorded as the later launch spec. A directory install is recorded as that directory because the package is not on PyPI.
+
+Tests on this machine use the `recoding-mcp` conda environment:
+
 ```powershell
 conda activate recoding-mcp
 pip install -e .

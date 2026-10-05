@@ -7,7 +7,7 @@ name = "agent-recorder-mcp"
 version = "0.1.0"
 description = "Local MCP server that records an agent computer session and returns a replay link"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
 dependencies = [
   "ffl-python==0.1.4",
@@ -17,7 +17,7 @@ dependencies = [
 
 [project.scripts]
 agent-recorder-mcp = "agent_recorder.Entrypoint:main"
-install = "mcp_install.Install:main"
+install = "agent_recorder.Entrypoint:installCommand"
 
 [tool.hatch.build.targets.wheel]
 only-include = ["src/agent_recorder", "install.config.json"]

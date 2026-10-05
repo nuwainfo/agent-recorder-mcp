@@ -8,27 +8,29 @@ This version targets the Linux X11 display used by GrokBot. It does not record t
 
 ## Install
 
-Use the `recoding-mcp` conda environment (Python 3.10+):
+GrokBot installs this into its own environment with `uvx`. The checkout or git URL has to be reachable from that machine. `uv` selects Python 3.11 or newer.
 
-```powershell
-conda activate recoding-mcp
-cd agent-recorder-mcp
-pip install -e .
+From the checkout, register only Grok and copy the session-recording skill:
+
+```bash
+uvx --from /path/to/agent-recorder-mcp install --target grok-build
 ```
+
+That writes a Grok MCP entry which launches the server the same way:
+
+```text
+uvx --from /path/to/agent-recorder-mcp agent-recorder-mcp
+```
+
+`agent-recorder-mcp install --target grok-build` is the same installer. Preview the entry without writing config or copying the skill:
+
+```bash
+uvx --from /path/to/agent-recorder-mcp install --print --target grok-build
+```
+
+A git checkout works the same way. `uvx --from git+https://.../agent-recorder-mcp install --target grok-build` records that git URL, so later launches do not need the local directory.
 
 The agent computer also needs `ffmpeg` and an X11 size tool (`xdpyinfo` or `xwininfo`, usually in `x11-utils`).
-
-Register the server and copy the session-recording skill into the Grok skills directory:
-
-```powershell
-agent-recorder-mcp install --target grok-build
-```
-
-`install` / `uninstall` use the same `mcp-install` flow as `ffl-mcp`. Preview without writing:
-
-```powershell
-agent-recorder-mcp install --print
-```
 
 Useful environment variables:
 
@@ -77,7 +79,11 @@ Creating an FFL link does not delete the file. With `after_download`, the server
 
 ## Development
 
+On this machine, tests use the `recoding-mcp` conda environment.
+
 ```powershell
+conda activate recoding-mcp
+pip install -e .
 python -m unittest discover -s tests -p "*Test.py" -v
 ```
 
