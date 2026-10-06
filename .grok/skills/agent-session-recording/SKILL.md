@@ -73,7 +73,7 @@ Add the same `agent-recorder` entry used for Claude Desktop to `~/.cursor/mcp.js
 
 When you are going to operate a browser or computer UI on behalf of the user:
 
-1. Call `startRecording` before the first browser or computer action. Do not pass parameters unless the user asked for a different frame rate or time limit.
+1. Call `startRecording` before the first browser or computer action. Pass `fps` or `maxDurationSeconds` only when the user asked for them. For a FastFileLink replay, omit `outputDir`. For Google Drive, set `outputDir` to a folder the Drive upload tool can read, such as `/workspace`.
 2. Perform the task with the agent's own browser and computer tools.
 3. After the last browser or computer action, call `finishRecording`.
 4. Include the returned replay URL in the final response.
@@ -88,34 +88,39 @@ Do not read the video file into the conversation. The tool returns a link, not p
 
 Use this only when the user wants the replay on Google Drive and a Google Drive connector is available. This recorder does not call Google.
 
-1. Call `finishRecording` with `delivery` `google_drive` and `cleanup` `after_upload`.
-2. Upload the returned `localPath` with the Google Drive connector. Do not read the video into the chat.
-3. Call `confirmUpload` with `recordingId` and the Drive file URL the connector returned.
-4. Put that Drive URL in the final response.
+1. Call `startRecording` with `outputDir` set to a folder the upload tool can read. Use `/workspace` when that is the readable folder. The recording file is written there. Do not copy it anywhere else.
+2. Call `finishRecording` with `delivery` `google_drive` and `cleanup` `after_upload`.
+3. Upload the returned `localPath` with the Google Drive connector. Do not read the video into the chat.
+4. Call `confirmUpload` with `recordingId` and the Drive file URL the connector returned. That deletes the file at `localPath`.
+5. Put that Drive URL in the final response.
 
 If no Google Drive connector is connected, use the default `finishRecording` and return the FastFileLink URL.
 
-Final response when a replay exists:
+## Final response
+
+Write the whole reply in the language the user is speaking. The labels below are English. Translate them, including the failure sentence. Leave the replay URL unchanged.
+
+When a replay exists:
 
 ```text
-完成。
+Done.
 
-結果：
+Result:
 <work result>
 
-操作錄影：
+Session replay:
 <replay URL>
 ```
 
-Final response when it does not:
+When it does not:
 
 ```text
-完成。
+Done.
 
-結果：
+Result:
 <work result>
 
-操作錄影：
-這次錄影失敗，沒有產生 replay。
-原因：<error>
+Session replay:
+Recording failed. No replay was produced.
+Reason: <error>
 ```

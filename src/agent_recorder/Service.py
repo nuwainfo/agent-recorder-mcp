@@ -18,7 +18,7 @@ from agent_recorder.Capture import FfmpegFrameProbe, FfmpegLocator, X11GrabCaptu
 from agent_recorder.Cleanup import AfterDownloadCleanup
 from agent_recorder.Delivery import DeliveryFactory, FFLDelivery, GoogleDriveDelivery, LocalDelivery
 from agent_recorder.Display import AgentDisplayDiscovery, LinuxProcessTable, X11SocketCatalog
-from agent_recorder.Files import RecordingFile
+from agent_recorder.Files import RecordingDirectory, RecordingFile
 from agent_recorder.Models import (
     CleanupPolicy,
     DeliveryError,
@@ -245,11 +245,23 @@ class RecordingService:
         suffix = uuid.uuid4().hex[:6]
         return f"rec_{stamp}_{suffix}"
 
-    def _create(self, display: str, fps: int, maxDurationSeconds: int) -> Recording:
+    def _mediaDirectory(self, outputDir: str | None) -> pathlib.Path:
+        if outputDir is None:
+            directory = self._config.recordingsDir
+            directory.mkdir(parents=True, exist_ok=True)
+            return RecordingDirectory.requireWritable(directory)
+
+        return RecordingDirectory.requireWritable(RecordingDirectory.resolve(outputDir))
+
+    def _create(
+        self,
+        display: str,
+        fps: int,
+        maxDurationSeconds: int,
+        directory: pathlib.Path,
+    ) -> Recording:
         startedAt = self._clock.now()
         recordingId = self._newId(startedAt)
-        directory = self._config.recordingsDir
-        directory.mkdir(parents=True, exist_ok=True)
         return Recording(
             recordingId=recordingId,
             state=RecordingState.RECORDING,
@@ -342,17 +354,6 @@ class RecordingService:
         if recording.ffmpegPid and self._inspector.isAlive(recording.ffmpegPid):
             self._stopPid(recording.ffmpegPid, recording.recordingId)
 
-    def _closeHook(self, recording: Recording) -> None:
-        hook = recording.completionHook
-        recording.completionHook = None
-        if hook is None:
-            return
-
-        try:
-            hook.close()
-        except Exception as error:
-            logger.warning("Could not close the transfer hook for %s: %s", recording.recordingId, error)
-
     def _stopShareQuiet(self, recording: Recording) -> None:
         session = recording.shareSession
         if session is None:
@@ -384,6 +385,7 @@ class RecordingService:
         self,
         fps: int = RecordingRequest.DEFAULT_FPS,
         maxDurationSeconds: int = RecordingRequest.DEFAULT_MAX_DURATION_SECONDS,
+        outputDir: str | None = None,
     ) -> StartResult:
         fps = RecordingRequest.fps(fps)
         maxDurationSeconds = RecordingRequest.maxDuration(maxDurationSeconds)
@@ -392,9 +394,10 @@ class RecordingService:
             if active is not None:
                 return StartResult(active, True)
 
+            directory = self._mediaDirectory(outputDir)
             self._capture.ensureAvailable()
             display = self._discovery.identify()
-            recording = self._create(display, fps, maxDurationSeconds)
+            recording = self._create(display, fps, maxDurationSeconds, directory)
             try:
                 handle = self._capture.start(recording)
             except Exception:
@@ -469,7 +472,6 @@ class RecordingService:
 
         with self._lock:
             recording.shareSession = result.session
-            recording.completionHook = result.completionHook
             recording.error = None
             recording.delivery = delivery
             recording.cleanup = cleanup
@@ -489,10 +491,10 @@ class RecordingService:
             self._store.save(recording)
 
         if cleanup == CleanupPolicy.AFTER_DOWNLOAD:
-            if result.completionHook is None:
-                raise DeliveryError("FFL delivery did not provide a completion hook.")
+            if result.session is None:
+                raise DeliveryError("FFL delivery did not provide a share session.")
 
-            self._cleanup.watch(recording, result.session, self._store, result.completionHook)
+            self._cleanup.watch(recording, result.session, self._store)
 
         return recording
 
@@ -511,7 +513,6 @@ class RecordingService:
             self._store.save(recording)
 
         self._stopCaptureProcess(recording, handle)
-        self._closeHook(recording)
         self._stopShareQuiet(recording)
         if deletePartial:
             RecordingFile.deleteMedia(recording)
@@ -521,7 +522,6 @@ class RecordingService:
             recording.handle = None
             recording.ffmpegPid = None
             recording.shareSession = None
-            recording.completionHook = None
             self._store.save(recording)
 
         return recording
@@ -579,7 +579,6 @@ class RecordingService:
             self._store.save(recording)
 
         self._stopCaptureProcess(recording, handle)
-        self._closeHook(recording)
         self._stopShareQuiet(recording)
         RecordingFile.deleteMedia(recording)
         RecordingFile.deleteLog(recording)

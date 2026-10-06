@@ -6,15 +6,13 @@ from __future__ import annotations
 
 import ffl
 
-from agent_recorder.CompletionHook import CompletionHook
 from agent_recorder.Models import DeliveryError, DeliveryKind
 
 
 class DeliveryResult:
-    def __init__(self, url: str | None, session=None, completionHook=None, awaitsUpload: bool = False):
+    def __init__(self, url: str | None, session=None, awaitsUpload: bool = False):
         self.url = url
         self.session = session
-        self.completionHook = completionHook
         self.awaitsUpload = awaitsUpload
 
 
@@ -26,36 +24,35 @@ class DeliveryStrategy:
 
 
 class FFLDelivery(DeliveryStrategy):
-    """Share a finished recording through the ffl-python binding.
+    """Share a finished recording through ffl-python.
 
-    The returned link is a live peer-to-peer source. Creating it does not
-    mean the local file can be deleted. Completion is observed on our own
-    hook because that is the channel FFL will keep posting to.
+    The link is a live peer-to-peer source. The local file stays until
+    ``session.on('completed')`` reports FFL's ``/transfer/complete`` event.
     """
 
-    def __init__(self, shareFunction=None, hookFactory=None):
+    def __init__(self, shareFunction=None):
         self._shareFunction = ffl.share if shareFunction is None else shareFunction
-        self._hookFactory = CompletionHook if hookFactory is None else hookFactory
 
     def deliver(self, recording) -> DeliveryResult:
-        hook = self._hookFactory()
-        try:
-            session = self._shareFunction(
-                str(recording.outputPath),
-                name=recording.outputPath.name,
-                hook_url=hook.url,
-                capture_hook_events=False,
-            )
-        except Exception:
-            hook.close()
-            raise
-
+        session = self._shareFunction(
+            str(recording.outputPath),
+            name=recording.outputPath.name,
+        )
         url = getattr(session, "link", None)
         if not isinstance(url, str) or not url:
-            hook.close()
+            self._close(session)
             raise DeliveryError("FFL did not return a replay URL.")
 
-        return DeliveryResult(url=url, session=session, completionHook=hook)
+        return DeliveryResult(url=url, session=session)
+
+    @staticmethod
+    def _close(session) -> None:
+        closer = getattr(session, "close", None)
+        if not callable(closer):
+            closer = getattr(session, "stop", None)
+
+        if callable(closer):
+            closer()
 
 
 class LocalDelivery(DeliveryStrategy):

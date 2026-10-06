@@ -16,13 +16,14 @@ logger = logging.getLogger(__name__)
 class AfterDownloadCleanup:
     """Delete the local file after FFL reports that the transfer completed."""
 
-    def watch(self, recording, session, store, hook) -> None:
-        def onCompleted() -> None:
-            self._complete(recording, session, store, hook)
+    def watch(self, recording, session, store) -> None:
+        def onCompleted(event) -> None:
+            del event
+            self._complete(recording, session, store)
 
-        hook.onComplete(onCompleted)
+        session.on("completed", onCompleted)
 
-    def _complete(self, recording, session, store, hook) -> None:
+    def _complete(self, recording, session, store) -> None:
         if recording.state != RecordingState.SHARED:
             logger.info(
                 "Ignoring transfer completion for %s in state %s",
@@ -44,15 +45,5 @@ class AfterDownloadCleanup:
         RecordingFile.deleteLog(recording)
         recording.state = RecordingState.CLEANED
         recording.shareSession = None
-        recording.completionHook = None
         store.save(recording)
-        try:
-            hook.close()
-        except Exception as error:
-            logger.warning(
-                "Could not close the transfer hook for %s: %s",
-                recording.recordingId,
-                error,
-            )
-
         logger.info("Deleted local recording %s after download", recording.recordingId)

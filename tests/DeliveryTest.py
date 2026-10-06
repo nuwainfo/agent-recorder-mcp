@@ -9,13 +9,17 @@ from pathlib import Path
 from agent_recorder.Delivery import FFLDelivery, GoogleDriveDelivery, LocalDelivery
 from agent_recorder.Models import DeliveryError
 
-from Support import FakeCompletionHook, sampleRecording
+from Support import sampleRecording
 
 
 class _Session:
     def __init__(self, link, captured):
         self.link = link
         self.captured = captured
+        self.closed = False
+
+    def close(self):
+        self.closed = True
 
 
 def _share(path, **kwargs):
@@ -25,31 +29,28 @@ def _share(path, **kwargs):
 
 class DeliveryTest(unittest.TestCase):
 
-    def testFflShareUsesOurCompletionHook(self):
+    def testFflShareReturnsTheSessionLink(self):
         with tempfile.TemporaryDirectory() as directory:
             recording = sampleRecording(Path(directory))
-            hook = FakeCompletionHook()
-            result = FFLDelivery(_share, hookFactory=lambda: hook).deliver(recording)
+            result = FFLDelivery(_share).deliver(recording)
             self.assertEqual(result.url, "https://fastfilelink.example/abc")
             self.assertEqual(result.session.captured["path"], str(recording.outputPath))
-            self.assertEqual(result.session.captured["kwargs"]["name"], recording.outputPath.name)
-            self.assertFalse(result.session.captured["kwargs"]["capture_hook_events"])
-            self.assertEqual(result.session.captured["kwargs"]["hook_url"], hook.url)
-            self.assertIs(result.completionHook, hook)
+            self.assertEqual(result.session.captured["kwargs"], {"name": recording.outputPath.name})
+            self.assertFalse(result.session.closed)
 
     def testFflShareWithoutALinkFails(self):
         with tempfile.TemporaryDirectory() as directory:
             recording = sampleRecording(Path(directory))
-            hook = FakeCompletionHook()
+            session = _Session("", {})
 
             def share(path, **kwargs):
                 del path, kwargs
-                return _Session("", {})
+                return session
 
             with self.assertRaises(DeliveryError):
-                FFLDelivery(share, hookFactory=lambda: hook).deliver(recording)
+                FFLDelivery(share).deliver(recording)
 
-            self.assertTrue(hook.closed)
+            self.assertTrue(session.closed)
 
     def testLocalDeliveryReturnsAFileUri(self):
         with tempfile.TemporaryDirectory() as directory:

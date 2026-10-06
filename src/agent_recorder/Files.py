@@ -6,9 +6,44 @@ from __future__ import annotations
 
 import logging
 import pathlib
+import uuid
+
+from agent_recorder.Models import RecorderError
 
 
 logger = logging.getLogger(__name__)
+
+
+class RecordingDirectory:
+    """A folder the caller has already chosen for the recording file."""
+
+    @staticmethod
+    def resolve(outputDir: str) -> pathlib.Path:
+        if not isinstance(outputDir, str) or outputDir.strip() == "":
+            raise RecorderError("outputDir must be a directory path")
+
+        return pathlib.Path(outputDir).expanduser().resolve()
+
+    @staticmethod
+    def requireWritable(directory: pathlib.Path) -> pathlib.Path:
+        if not directory.exists():
+            raise RecorderError(f"Recording directory does not exist: {directory}")
+
+        if not directory.is_dir():
+            raise RecorderError(f"Recording directory is not a directory: {directory}")
+
+        probe = directory / f".agent-recorder-{uuid.uuid4().hex}.tmp"
+        try:
+            probe.write_bytes(b"")
+        except OSError as error:
+            raise RecorderError(f"Recording directory is not writable: {directory}") from error
+
+        try:
+            probe.unlink()
+        except OSError as error:
+            logger.warning("Could not remove write probe %s: %s", probe, error)
+
+        return directory
 
 
 class RecordingFile:

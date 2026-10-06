@@ -9,8 +9,7 @@
 - `src/agent_recorder/Display.py` — X11 display selection for this agent process tree.
 - `src/agent_recorder/Capture.py` — FFmpeg command and process lifetime.
 - `src/agent_recorder/Delivery.py` — transfer strategies: FFL, local file, Google Drive handoff.
-- `src/agent_recorder/CompletionHook.py` — local hook that accepts FFL completion events.
-- `src/agent_recorder/Cleanup.py` — delete after the FFL download event.
+- `src/agent_recorder/Cleanup.py` — delete after FFL's `completed` event.
 - `src/agent_recorder/Store.py` — snake_case JSON metadata on disk.
 - `.grok/skills/agent-session-recording/SKILL.md` — when the agent must record.
 
@@ -18,11 +17,11 @@
 
 Follow the FastFileLink clean-code rules: camelCase in Python and tool payloads, snake_case only in on-disk JSON, `IntEnum` members inside the process, early returns, no silent fallbacks, no bare `except: pass`. Do not use `_` as a throwaway name.
 
-Do not add a second capture backend or a dashboard. Google Drive is a transfer strategy: this process does not call Google. The assistant uploads `localPath` with a connected Drive connector and then calls `confirmUpload`. `after_upload` is valid only for `google_drive`.
+Do not add a second capture backend or a dashboard. Google Drive is a transfer strategy: this process does not call Google. The assistant passes `outputDir` on `startRecording` as a folder its Drive tool can read, uploads `localPath`, then calls `confirmUpload`. `after_upload` is valid only for `google_drive`. A caller-supplied `outputDir` must already exist and be writable. The metadata `output_path` is that file, and cleanup deletes it.
 
 Display selection must fail with `No active agent display could be identified.` when this agent tree has no display. Do not substitute another socket.
 
-FFL completion must be received on a hook that answers HTTP 200 and accepts `/download/complete` and `/webrtc/transfer/complete`. Do not wait on `ffl-python`'s semantic `completed` event. That channel answers 204 and maps `/hook/transfer/complete`, so a finished curl download never deletes the file or stops the share.
+`after_download` uses ffl-python `session.on('completed')`. That event is `/transfer/complete`, which FFL emits once when an HTTP, WebRTC, or direct P2P transfer finishes. The handler stops the share and deletes the local file.
 
 ## Commands
 

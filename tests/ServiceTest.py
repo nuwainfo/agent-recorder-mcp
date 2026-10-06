@@ -2,10 +2,12 @@
 # -*- coding: utf-8 -*-
 # SPDX-License-Identifier: Apache-2.0
 
+import json
 import tempfile
 import unittest
 from datetime import timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 from agent_recorder.Cleanup import AfterDownloadCleanup
 from agent_recorder.Delivery import DeliveryFactory, LocalDelivery
@@ -57,6 +59,56 @@ class ServiceTest(unittest.TestCase):
             self.assertEqual(disk.fps, 5)
             self.assertEqual(disk.display, ":12")
 
+    def testOutputDirIsRecordedAndCleanupDeletesThatFile(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            media = root / "workspace"
+            media.mkdir()
+            service, _store, _delivery, capture = openService(root)
+            started = service.start(outputDir=str(media))
+            recording = started.recording
+            self.assertEqual(recording.outputPath.parent.resolve(), media.resolve())
+            self.assertEqual(capture.started, [":12"])
+            recording.outputPath.write_bytes(PLAYABLE_BYTES)
+            metadataPath = root / "recordings" / f"{recording.recordingId}.json"
+            saved = json.loads(metadataPath.read_text(encoding="utf-8"))
+            self.assertEqual(Path(saved["output_path"]), recording.outputPath)
+            ignored = service.start(outputDir=str(root / "missing"))
+            self.assertTrue(ignored.alreadyRecording)
+            self.assertEqual(ignored.recording.recordingId, recording.recordingId)
+            service.cleanup(recording.recordingId)
+            self.assertFalse(recording.outputPath.exists())
+
+    def testMissingOutputDirFailsBeforeCapture(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            discovery = FakeDiscovery()
+            capture = FakeCapture()
+            service, _store, _delivery, _capture = openService(
+                root,
+                discovery=discovery,
+                capture=capture,
+            )
+            missing = root / "missing"
+            with self.assertRaises(RecorderError) as caught:
+                service.start(outputDir=str(missing))
+
+            self.assertIn("does not exist", str(caught.exception))
+            self.assertEqual(discovery.calls, 0)
+            self.assertEqual(capture.started, [])
+            filePath = root / "not-a-directory"
+            filePath.write_text("x", encoding="utf-8")
+            with self.assertRaises(RecorderError) as caught:
+                service.start(outputDir=str(filePath))
+
+            self.assertIn("not a directory", str(caught.exception))
+            with patch.object(Path, "write_bytes", side_effect=OSError("denied")):
+                with self.assertRaises(RecorderError) as caught:
+                    service.start(outputDir=str(root))
+
+            self.assertIn("not writable", str(caught.exception))
+            self.assertEqual(discovery.calls, 0)
+
     def testInvalidFpsFailsBeforeDiscovery(self):
         with tempfile.TemporaryDirectory() as directory:
             discovery = FakeDiscovery()
@@ -103,10 +155,9 @@ class ServiceTest(unittest.TestCase):
             self.assertEqual(finished.cleanup, CleanupPolicy.AFTER_DOWNLOAD)
             self.assertTrue(finished.outputPath.exists())
             self.assertFalse(delivery.session.stopped)
-            delivery.hook.emit()
+            delivery.session.emitCompleted()
             self.assertFalse(finished.outputPath.exists())
             self.assertTrue(delivery.session.stopped)
-            self.assertTrue(delivery.hook.closed)
             self.assertEqual(finished.state, RecordingState.CLEANED)
             started.recording.watchThread.join(2)
             self.assertFalse(started.recording.watchThread.is_alive())

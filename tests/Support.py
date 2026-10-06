@@ -135,33 +135,24 @@ class FakeShareSession:
     def __init__(self):
         self.link = "https://fastfilelink.example/replay"
         self.stopped = False
+        self._completedListeners = []
+
+    def on(self, name, listener):
+        if name == "completed":
+            self._completedListeners.append(listener)
+
+    def emitCompleted(self):
+        for listener in list(self._completedListeners):
+            listener(None)
 
     def stop(self, timeout=5):
         del timeout
         self.stopped = True
 
 
-class FakeCompletionHook:
-    def __init__(self):
-        self.url = "http://127.0.0.1:9/events"
-        self.closed = False
-        self._listeners = []
-
-    def onComplete(self, listener):
-        self._listeners.append(listener)
-
-    def emit(self):
-        for listener in list(self._listeners):
-            listener()
-
-    def close(self):
-        self.closed = True
-
-
 class FakeDelivery:
     def __init__(self):
         self.session = FakeShareSession()
-        self.hook = FakeCompletionHook()
         self.calls = []
 
     def deliver(self, recording):
@@ -169,7 +160,6 @@ class FakeDelivery:
         return DeliveryResult(
             url=self.session.link,
             session=self.session,
-            completionHook=self.hook,
         )
 
 

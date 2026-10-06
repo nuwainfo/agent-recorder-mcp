@@ -49,6 +49,7 @@ def _service() -> RecordingService:
 def startRecording(
     fps: int = RecordingRequest.DEFAULT_FPS,
     maxDurationSeconds: int = RecordingRequest.DEFAULT_MAX_DURATION_SECONDS,
+    outputDir: str | None = None,
 ) -> dict[str, Any]:
     """Start recording the agent computer display before browser or computer-use actions.
 
@@ -58,10 +59,19 @@ def startRecording(
     fps defaults to 5. maxDurationSeconds defaults to 7200. When the limit is reached
     the capture stops and the file is kept so finishRecording can still share it.
 
+    outputDir writes the recording file directly into that directory. Omit it to use
+    the default recordings directory. The directory must already exist and be writable.
+    When the replay will be uploaded with a connected Google Drive tool, pass a
+    directory that tool can read, such as /workspace.
+
     If a recording is already active, or is waiting to be shared, that recording is
-    returned and a second recorder is not started.
+    returned and a second recorder is not started. outputDir is ignored in that case.
     """
-    result = _service().start(fps=fps, maxDurationSeconds=maxDurationSeconds)
+    result = _service().start(
+        fps=fps,
+        maxDurationSeconds=maxDurationSeconds,
+        outputDir=outputDir,
+    )
     return _service().payloadFor(result.recording, alreadyRecording=result.alreadyRecording)
 
 

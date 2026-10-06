@@ -40,6 +40,7 @@ class ToolSignatureTest(unittest.TestCase):
         params = self._params(MCP.startRecording)
         self.assertEqual(params["fps"].default, 5)
         self.assertEqual(params["maxDurationSeconds"].default, 7200)
+        self.assertIsNone(params["outputDir"].default)
 
     def testFinishDefaults(self):
         params = self._params(MCP.finishRecording)

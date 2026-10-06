@@ -295,7 +295,6 @@ class X11GrabCapture:
             nativeSize,
             outputSize,
         )
-        recording.outputPath.parent.mkdir(parents=True, exist_ok=True)
         logHandle = recording.logPath.open("wb")
         try:
             process = subprocess.Popen(

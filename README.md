@@ -36,14 +36,14 @@ Recordings are written to `<root>/recordings/rec_YYYYMMDD_HHMMSS_<id>.mp4`.
 
 | Tool | Purpose |
 | --- | --- |
-| `startRecording` | Select this agent's display and start FFmpeg. Defaults: 5 fps, 7200 seconds. |
+| `startRecording` | Select this agent's display and start FFmpeg. Defaults: 5 fps, 7200 seconds. Optional `outputDir` writes the file into an existing writable folder. |
 | `recordingStatus` | Duration, size, display, and state. `idle` when nothing is active. |
 | `finishRecording` | Stop, finalize, and hand the file to a transfer strategy. |
 | `confirmUpload` | Store the Google Drive link and apply `after_upload` cleanup. |
 | `abortRecording` | Stop without sharing. Deletes the partial file unless `deletePartial` is false. |
 | `cleanupRecording` | Delete one local recording by `recordingId` and stop its share. |
 
-`finishRecording` defaults to `delivery=ffl` and `cleanup=after_download`. `delivery=local` with `cleanup=manual` returns a `file:` URI and leaves the file in place. `delivery=google_drive` with `cleanup=after_upload` returns `localPath` for the assistant's Google Drive connector. `confirmUpload` stores the Drive URL and then deletes the local file.
+`finishRecording` defaults to `delivery=ffl` and `cleanup=after_download`. `delivery=local` with `cleanup=manual` returns a `file:` URI and leaves the file in place. `delivery=google_drive` with `cleanup=after_upload` returns `localPath` for the assistant's Google Drive connector. Pass `outputDir` on `startRecording` as a folder that connector can read, such as `/workspace`. `confirmUpload` stores the Drive URL and then deletes that file.
 
 A second `startRecording` while one recording is active returns that recording and sets `alreadyRecording` to true.
 
@@ -61,7 +61,7 @@ A blank frame on the identified display is still recorded. The browser often ope
 
 ## Cleanup
 
-Creating an FFL link does not delete the file. With `after_download`, the server waits until FFL reports `/download/complete` or `/webrtc/transfer/complete`, stops the share, then deletes the local file. A full HTTP download, including curl, is one of those reports. If the MCP process exits before that event, the file stays and a later `finishRecording` can share it again.
+Creating an FFL link does not delete the file. With `after_download`, the server waits for FFL's `completed` event (`/transfer/complete`), stops the share, then deletes the local file. That event covers a full HTTP download, including curl, and a WebRTC or direct P2P transfer. If the MCP process exits before that event, the file stays and a later `finishRecording` can share it again.
 
 `maxDurationSeconds` stops FFmpeg and keeps a playable file so `finishRecording` can still share it. A crashed recorder does not leave FFmpeg running past that limit or after its owner process is gone.
 

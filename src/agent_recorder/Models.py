@@ -154,7 +154,6 @@ class Recording:
         self.uploadStatus = uploadStatus
         self.handle = None
         self.shareSession = None
-        self.completionHook = None
         self.watchThread = None
 
     @staticmethod
